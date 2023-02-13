@@ -2,11 +2,15 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -43,8 +47,43 @@ func main() {
 		PrivateKeyPath: "GoClearBank.prv"}
 
 	r := Router()
-	fmt.Println("Listening port 3000")
-	log.Fatal(http.ListenAndServe(":3000", r))
+
+	srv := &http.Server{
+		Handler:      r,
+		Addr:         ":3000",
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+	}
+
+	// Start Server
+	go func() {
+		log.Println("Starting Server")
+		if err := srv.ListenAndServe(); err != nil {
+			log.Fatal(err)
+		}
+	}()
+
+	// Graceful Shutdown
+	waitForShutdown(srv)
+
+	// fmt.Println("Listening port 3000")
+	// log.Fatal(http.ListenAndServe(":3000", r))
+}
+
+func waitForShutdown(srv *http.Server) {
+	interruptChan := make(chan os.Signal, 1)
+	signal.Notify(interruptChan, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+
+	// Block until we receive our signal.
+	<-interruptChan
+
+	// create a deadline to wait for.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	defer cancel()
+	srv.Shutdown(ctx)
+
+	log.Println("Shutting down")
+	os.Exit(0)
 }
 
 func Router() *mux.Router {
